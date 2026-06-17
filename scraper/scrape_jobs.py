@@ -15,7 +15,6 @@ SEARCH_QUERIES = [
     "Production Planning Control PPC",
     "Material Planning Engineer",
     "Manufacturing Engineer",
-    "Production Planning Engineer India",
     "PPC Engineer manufacturing",
     "Material Planning Manager",
     "Manufacturing Business Process",
@@ -24,7 +23,8 @@ SEARCH_QUERIES = [
     "Inventory Planning Manufacturing",
 ]
 
-LOCATIONS = ["India", "Hyderabad", "Bangalore", "Chennai", "Pune", "Mumbai"]
+# Only Hyderabad, Remote, WFH, Contract jobs
+ALLOWED_LOCATIONS = ["hyderabad", "remote", "work from home", "wfh", "india", "telangana", "anywhere", "contract"]
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "docs" / "data"
 
@@ -64,7 +64,7 @@ def scrape_adzuna():
     queries = ["production+planning", "material+planning", "ppc+engineer", "manufacturing+engineer", "lean+manufacturing"]
     try:
         for q in queries:
-            url = f"https://www.adzuna.co.in/search?q={q}&loc=India"
+            url = f"https://www.adzuna.co.in/search?q={q}&loc=Hyderabad"
             r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
@@ -101,15 +101,17 @@ def scrape_linkedin_public():
     """Scrape LinkedIn public job search (no auth needed)."""
     jobs = []
     queries = [
-        "production planning control india",
-        "material planning engineer india",
+        "production planning control hyderabad",
+        "material planning engineer hyderabad",
         "manufacturing engineer hyderabad",
-        "PPC engineer india",
-        "lean manufacturing engineer india",
+        "PPC engineer hyderabad",
+        "lean manufacturing engineer hyderabad",
+        "production planning remote india",
+        "material planning remote india",
     ]
     try:
         for q in queries:
-            url = f"https://www.linkedin.com/jobs/search?keywords={quote_plus(q)}&location=India&f_TPR=r604800"
+            url = f"https://www.linkedin.com/jobs/search?keywords={quote_plus(q)}&location=Hyderabad&f_TPR=r604800"
             r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
@@ -147,7 +149,7 @@ def scrape_jooble():
     queries = ["production+planning", "material+planning", "PPC+engineer", "manufacturing+engineer"]
     try:
         for q in queries:
-            url = f"https://in.jooble.org/SearchResult?ukw={q}"
+            url = f"https://in.jooble.org/SearchResult?ukw={q}&rgns=Hyderabad"
             r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
@@ -181,7 +183,7 @@ def scrape_jooble():
 
 
 def filter_relevant(jobs):
-    """Filter jobs relevant to PPC/Manufacturing/Material Planning."""
+    """Filter jobs relevant to PPC/Manufacturing/Material Planning in Hyderabad/Remote."""
     keywords = [
         "production planning", "ppc", "material planning", "manufacturing",
         "lean", "kaizen", "inventory", "supply chain", "procurement",
@@ -194,9 +196,21 @@ def filter_relevant(jobs):
         if j["id"] in seen_ids:
             continue
         text = (j["title"] + " " + j.get("company", "")).lower()
-        if any(k in text for k in keywords):
-            seen_ids.add(j["id"])
-            filtered.append(j)
+        loc = j.get("location", "").lower()
+        # Must match role keywords
+        if not any(k in text for k in keywords):
+            continue
+        # Must be Hyderabad, Remote, or broad India (not other specific cities)
+        is_allowed_location = any(al in loc for al in ALLOWED_LOCATIONS)
+        is_other_city = any(c in loc for c in [
+            "bangalore", "bengaluru", "chennai", "mumbai", "pune", "delhi",
+            "gurgaon", "noida", "kolkata", "ahmedabad", "jaipur", "kochi",
+            "coimbatore", "silvassa", "kanchipuram", "vadodara", "surat",
+        ])
+        if not is_allowed_location and is_other_city:
+            continue
+        seen_ids.add(j["id"])
+        filtered.append(j)
     return filtered
 
 
