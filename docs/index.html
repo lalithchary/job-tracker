@@ -32,6 +32,10 @@
         select.status-select { padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #0d1117; color: inherit; font-size: 0.8rem; }
         a.apply-link { color: #58a6ff; text-decoration: none; padding: 4px 10px; border: 1px solid #58a6ff; border-radius: 4px; white-space: nowrap; }
         a.apply-link:hover { background: #58a6ff; color: #0d1117; }
+        .btn-remove { background: none; border: 1px solid #f85149; color: #f85149; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 0.75rem; }
+        .btn-remove:hover { background: #f85149; color: #0d1117; }
+        .badge-remote { background: #238636; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; }
+        .badge-onsite { background: #30363d; color: #8b949e; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; }
         .no-jobs { text-align: center; padding: 40px; color: #8b949e; }
         .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 15px; }
         .pagination button { padding: 6px 12px; border: 1px solid #30363d; border-radius: 4px; background: #161b22; color: #c9d1d9; cursor: pointer; }
@@ -74,9 +78,11 @@
                     <th data-sort="title">Title ↕</th>
                     <th data-sort="company">Company ↕</th>
                     <th data-sort="location">Location ↕</th>
+                    <th data-sort="remote">Type ↕</th>
                     <th data-sort="source">Source ↕</th>
                     <th>Status</th>
                     <th>Apply</th>
+                    <th>Remove</th>
                 </tr>
             </thead>
             <tbody id="jobsBody"></tbody>
@@ -88,6 +94,7 @@
     let jobs = [];
     let sortCol = "date_found", sortDir = -1, page = 1;
     const STORAGE_KEY = "job_tracker_statuses";
+    const HIDDEN_KEY = "job_tracker_hidden";
 
     function loadStatuses() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
@@ -97,13 +104,29 @@
         s[id] = status;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
     }
+    function loadHidden() {
+        try { return JSON.parse(localStorage.getItem(HIDDEN_KEY)) || []; } catch { return []; }
+    }
+    function hideJob(id) {
+        const h = loadHidden();
+        if (!h.includes(id)) h.push(id);
+        localStorage.setItem(HIDDEN_KEY, JSON.stringify(h));
+        render();
+    }
+    function isRemote(j) {
+        const loc = (j.location || "").toLowerCase();
+        const title = (j.title || "").toLowerCase();
+        return ["remote", "work from home", "wfh", "anywhere", "hybrid"].some(k => loc.includes(k) || title.includes(k));
+    }
 
     function getFiltered() {
         const search = document.getElementById("search").value.toLowerCase();
         const status = document.getElementById("filterStatus").value;
         const source = document.getElementById("filterSource").value;
         const statuses = loadStatuses();
+        const hidden = loadHidden();
         return jobs.filter(j => {
+            if (hidden.includes(j.id)) return false;
             const jStatus = statuses[j.id] || j.status || "new";
             if (status !== "all" && jStatus !== status) return false;
             if (source !== "all" && j.source !== source) return false;
@@ -130,11 +153,14 @@
 
         document.getElementById("jobsBody").innerHTML = pageJobs.length ? pageJobs.map(j => {
             const s = statuses[j.id] || j.status || "new";
+            const remote = isRemote(j);
+            j.remote = remote ? "remote" : "onsite";
             return `<tr>
                 <td>${j.date_found || ""}</td>
                 <td>${j.title}</td>
                 <td>${j.company}</td>
                 <td>${j.location}</td>
+                <td><span class="badge-${remote?'remote':'onsite'}">${remote?'Remote':'On-site'}</span></td>
                 <td>${j.source}</td>
                 <td><select class="status-select status-${s}" data-id="${j.id}" onchange="updateStatus(this)">
                     <option value="new" ${s==="new"?"selected":""}>New</option>
@@ -144,8 +170,9 @@
                     <option value="rejected" ${s==="rejected"?"selected":""}>Rejected</option>
                 </select></td>
                 <td><a class="apply-link" href="${j.url}" target="_blank" rel="noopener">Apply →</a></td>
+                <td><button class="btn-remove" onclick="hideJob('${j.id}')">✕</button></td>
             </tr>`;
-        }).join("") : '<tr><td colspan="7" class="no-jobs">No jobs found</td></tr>';
+        }).join("") : '<tr><td colspan="9" class="no-jobs">No jobs found</td></tr>';
 
         // Stats
         const allStatuses = jobs.map(j => statuses[j.id] || j.status || "new");
@@ -193,7 +220,7 @@
         sources.forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = s; sel.appendChild(o); });
         render();
     }).catch(() => {
-        document.getElementById("jobsBody").innerHTML = '<tr><td colspan="7" class="no-jobs">No jobs data yet. Wait for the first scrape to complete.</td></tr>';
+        document.getElementById("jobsBody").innerHTML = '<tr><td colspan="9" class="no-jobs">No jobs data yet. Wait for the first scrape to complete.</td></tr>';
     });
 
     fetch("data/last_updated.json").then(r => r.json()).then(d => {
