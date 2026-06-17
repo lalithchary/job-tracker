@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Tracker - PPC & Manufacturing</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .header h1 { color: #58a6ff; font-size: 1.5rem; }
+        .header p { color: #8b949e; font-size: 0.85rem; margin-top: 4px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; align-items: center; }
+        .controls input, .controls select { padding: 8px 12px; border: 1px solid #30363d; border-radius: 6px; background: #161b22; color: #c9d1d9; font-size: 0.85rem; }
+        .controls input { flex: 1; min-width: 200px; }
+        .controls select { min-width: 120px; }
+        .stats { display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; }
+        .stat { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 16px; text-align: center; }
+        .stat .num { font-size: 1.3rem; font-weight: bold; color: #58a6ff; }
+        .stat .label { font-size: 0.75rem; color: #8b949e; }
+        .table-wrap { overflow-x: auto; border: 1px solid #30363d; border-radius: 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        th { background: #161b22; color: #58a6ff; padding: 10px 8px; text-align: left; position: sticky; top: 0; cursor: pointer; white-space: nowrap; }
+        th:hover { color: #79c0ff; }
+        td { padding: 8px; border-top: 1px solid #21262d; vertical-align: middle; }
+        tr:hover { background: #161b22; }
+        .status-new { color: #58a6ff; }
+        .status-applied { color: #3fb950; }
+        .status-rejected { color: #f85149; }
+        .status-interview { color: #d29922; }
+        .status-saved { color: #bc8cff; }
+        select.status-select { padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #0d1117; color: inherit; font-size: 0.8rem; }
+        a.apply-link { color: #58a6ff; text-decoration: none; padding: 4px 10px; border: 1px solid #58a6ff; border-radius: 4px; white-space: nowrap; }
+        a.apply-link:hover { background: #58a6ff; color: #0d1117; }
+        .no-jobs { text-align: center; padding: 40px; color: #8b949e; }
+        .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 15px; }
+        .pagination button { padding: 6px 12px; border: 1px solid #30363d; border-radius: 4px; background: #161b22; color: #c9d1d9; cursor: pointer; }
+        .pagination button:hover { border-color: #58a6ff; }
+        .pagination button:disabled { opacity: 0.4; cursor: default; }
+        .pagination .page-info { padding: 6px 12px; color: #8b949e; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏭 Job Tracker - PPC & Manufacturing</h1>
+        <p id="lastUpdated">Loading...</p>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="controls">
+        <input type="text" id="search" placeholder="Search jobs by title, company, location...">
+        <select id="filterStatus">
+            <option value="all">All Status</option>
+            <option value="new">New</option>
+            <option value="saved">Saved</option>
+            <option value="applied">Applied</option>
+            <option value="interview">Interview</option>
+            <option value="rejected">Rejected</option>
+        </select>
+        <select id="filterSource">
+            <option value="all">All Sources</option>
+        </select>
+        <select id="perPage">
+            <option value="50">50/page</option>
+            <option value="100">100/page</option>
+            <option value="200">200/page</option>
+            <option value="500">500/page</option>
+        </select>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th data-sort="date_found">Date ↕</th>
+                    <th data-sort="title">Title ↕</th>
+                    <th data-sort="company">Company ↕</th>
+                    <th data-sort="location">Location ↕</th>
+                    <th data-sort="source">Source ↕</th>
+                    <th>Status</th>
+                    <th>Apply</th>
+                </tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+        </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+
+    <script>
+    let jobs = [];
+    let sortCol = "date_found", sortDir = -1, page = 1;
+    const STORAGE_KEY = "job_tracker_statuses";
+
+    function loadStatuses() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+    }
+    function saveStatus(id, status) {
+        const s = loadStatuses();
+        s[id] = status;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    }
+
+    function getFiltered() {
+        const search = document.getElementById("search").value.toLowerCase();
+        const status = document.getElementById("filterStatus").value;
+        const source = document.getElementById("filterSource").value;
+        const statuses = loadStatuses();
+        return jobs.filter(j => {
+            const jStatus = statuses[j.id] || j.status || "new";
+            if (status !== "all" && jStatus !== status) return false;
+            if (source !== "all" && j.source !== source) return false;
+            if (search) {
+                const text = `${j.title} ${j.company} ${j.location}`.toLowerCase();
+                if (!text.includes(search)) return false;
+            }
+            return true;
+        });
+    }
+
+    function render() {
+        const filtered = getFiltered();
+        filtered.sort((a, b) => {
+            const av = (a[sortCol] || "").toLowerCase(), bv = (b[sortCol] || "").toLowerCase();
+            return av < bv ? -sortDir : av > bv ? sortDir : 0;
+        });
+        const perPage = parseInt(document.getElementById("perPage").value);
+        const totalPages = Math.ceil(filtered.length / perPage) || 1;
+        if (page > totalPages) page = totalPages;
+        const start = (page - 1) * perPage;
+        const pageJobs = filtered.slice(start, start + perPage);
+        const statuses = loadStatuses();
+
+        document.getElementById("jobsBody").innerHTML = pageJobs.length ? pageJobs.map(j => {
+            const s = statuses[j.id] || j.status || "new";
+            return `<tr>
+                <td>${j.date_found || ""}</td>
+                <td>${j.title}</td>
+                <td>${j.company}</td>
+                <td>${j.location}</td>
+                <td>${j.source}</td>
+                <td><select class="status-select status-${s}" data-id="${j.id}" onchange="updateStatus(this)">
+                    <option value="new" ${s==="new"?"selected":""}>New</option>
+                    <option value="saved" ${s==="saved"?"selected":""}>Saved</option>
+                    <option value="applied" ${s==="applied"?"selected":""}>Applied</option>
+                    <option value="interview" ${s==="interview"?"selected":""}>Interview</option>
+                    <option value="rejected" ${s==="rejected"?"selected":""}>Rejected</option>
+                </select></td>
+                <td><a class="apply-link" href="${j.url}" target="_blank" rel="noopener">Apply →</a></td>
+            </tr>`;
+        }).join("") : '<tr><td colspan="7" class="no-jobs">No jobs found</td></tr>';
+
+        // Stats
+        const allStatuses = jobs.map(j => statuses[j.id] || j.status || "new");
+        document.getElementById("stats").innerHTML = [
+            ["Total", jobs.length, "#58a6ff"],
+            ["New", allStatuses.filter(s=>s==="new").length, "#58a6ff"],
+            ["Saved", allStatuses.filter(s=>s==="saved").length, "#bc8cff"],
+            ["Applied", allStatuses.filter(s=>s==="applied").length, "#3fb950"],
+            ["Interview", allStatuses.filter(s=>s==="interview").length, "#d29922"],
+            ["Rejected", allStatuses.filter(s=>s==="rejected").length, "#f85149"],
+        ].map(([l,n,c]) => `<div class="stat"><div class="num" style="color:${c}">${n}</div><div class="label">${l}</div></div>`).join("");
+
+        // Pagination
+        document.getElementById("pagination").innerHTML = `
+            <button onclick="page=1;render()" ${page===1?"disabled":""}>«</button>
+            <button onclick="page--;render()" ${page===1?"disabled":""}>‹</button>
+            <span class="page-info">${page} / ${totalPages} (${filtered.length} jobs)</span>
+            <button onclick="page++;render()" ${page===totalPages?"disabled":""}>›</button>
+            <button onclick="page=${totalPages};render()" ${page===totalPages?"disabled":""}>»</button>`;
+    }
+
+    function updateStatus(el) {
+        saveStatus(el.dataset.id, el.value);
+        el.className = `status-select status-${el.value}`;
+        render();
+    }
+
+    document.querySelectorAll("th[data-sort]").forEach(th => {
+        th.onclick = () => {
+            const col = th.dataset.sort;
+            if (sortCol === col) sortDir *= -1; else { sortCol = col; sortDir = 1; }
+            render();
+        };
+    });
+    document.getElementById("search").oninput = () => { page = 1; render(); };
+    document.getElementById("filterStatus").onchange = () => { page = 1; render(); };
+    document.getElementById("filterSource").onchange = () => { page = 1; render(); };
+    document.getElementById("perPage").onchange = () => { page = 1; render(); };
+
+    // Load data
+    fetch("data/jobs.json").then(r => r.json()).then(data => {
+        jobs = data;
+        const sources = [...new Set(jobs.map(j => j.source))];
+        const sel = document.getElementById("filterSource");
+        sources.forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = s; sel.appendChild(o); });
+        render();
+    }).catch(() => {
+        document.getElementById("jobsBody").innerHTML = '<tr><td colspan="7" class="no-jobs">No jobs data yet. Wait for the first scrape to complete.</td></tr>';
+    });
+
+    fetch("data/last_updated.json").then(r => r.json()).then(d => {
+        document.getElementById("lastUpdated").textContent = `Last updated: ${new Date(d.last_updated).toLocaleString()}`;
+    }).catch(() => {});
+    </script>
+</body>
+</html>
